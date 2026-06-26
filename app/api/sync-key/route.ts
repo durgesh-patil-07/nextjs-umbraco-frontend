@@ -15,6 +15,9 @@ import path from "path";
  *     → If Vercel:
  *          1. Updates UMBRACO_API_KEY in Vercel Environment Variables using Vercel API
  *          2. Triggers Vercel rebuild/redeploy via Vercel Deploy Hook
+ *
+ * NOTE: We use UMBRACO_VERCEL_PROJECT_ID (not VERCEL_PROJECT_ID) because
+ *       Vercel injects its own VERCEL_PROJECT_ID system variable that conflicts.
  */
 export async function POST(request: Request) {
   try {
@@ -37,7 +40,7 @@ export async function POST(request: Request) {
 
     // ── Local Development Handling ───────────────────────────────────────────
     // If running locally, we update the local .env.local file directly.
-    const isLocal = process.env.NODE_ENV === "development" || !process.env.VERCEL;
+    const isLocal = !process.env.VERCEL;
     if (isLocal) {
       try {
         const envPath = path.join(process.cwd(), ".env.local");
@@ -60,9 +63,13 @@ export async function POST(request: Request) {
     }
 
     // ── Vercel Production Environment Variables Update ───────────────────────
-    const projectId = process.env.VERCEL_PROJECT_ID;
-    const teamId = process.env.VERCEL_TEAM_ID;
-    const authToken = process.env.VERCEL_AUTH_TOKEN;
+    // IMPORTANT: Use UMBRACO_VERCEL_PROJECT_ID (custom name) instead of
+    //            VERCEL_PROJECT_ID — Vercel overrides that with its own system value.
+    const projectId = process.env.UMBRACO_VERCEL_PROJECT_ID;
+    const teamId    = process.env.UMBRACO_VERCEL_TEAM_ID;
+    const authToken = process.env.UMBRACO_VERCEL_AUTH_TOKEN;
+
+    console.log(`[sync-key] 🔍 Env check — projectId: ${projectId ? "✅ set" : "❌ missing"}, teamId: ${teamId ? "✅ set" : "❌ missing"}, authToken: ${authToken ? "✅ set" : "❌ missing"}`);
 
     if (projectId && authToken) {
       const url = new URL(`https://api.vercel.com/v10/projects/${projectId}/env`);
@@ -71,7 +78,7 @@ export async function POST(request: Request) {
         url.searchParams.append("teamId", teamId);
       }
 
-      console.log(`[sync-key] Updating Vercel Env Var for project ${projectId}...`);
+      console.log(`[sync-key] Updating Vercel Env Var UMBRACO_API_KEY → ${apiKey} for project ${projectId}...`);
       const envResponse = await fetch(url.toString(), {
         method: "POST",
         headers: {
@@ -86,19 +93,20 @@ export async function POST(request: Request) {
         }),
       });
 
+      const envResponseText = await envResponse.text();
+
       if (!envResponse.ok) {
-        const errorText = await envResponse.text();
-        console.error(`[sync-key] ❌ Vercel env update failed:`, errorText);
+        console.error(`[sync-key] ❌ Vercel env update failed (${envResponse.status}):`, envResponseText);
         return NextResponse.json(
-          { error: "Failed to update Vercel env var", detail: errorText },
+          { error: "Failed to update Vercel env var", detail: envResponseText },
           { status: 502 }
         );
       }
 
-      console.log("[sync-key] ✅ Vercel environment variable updated successfully");
+      console.log("[sync-key] ✅ Vercel environment variable updated successfully:", envResponseText.slice(0, 200));
 
       // ── Trigger Vercel Redeployment ─────────────────────────────────────────
-      const deployHookUrl = process.env.VERCEL_DEPLOY_HOOK_URL;
+      const deployHookUrl = process.env.UMBRACO_VERCEL_DEPLOY_HOOK_URL;
       if (deployHookUrl) {
         console.log("[sync-key] Triggering Vercel Redeployment via Deploy Hook...");
         const deployResponse = await fetch(deployHookUrl, {
@@ -112,10 +120,10 @@ export async function POST(request: Request) {
           console.log("[sync-key] ✅ Vercel Redeployment triggered successfully");
         }
       } else {
-        console.warn("[sync-key] ⚠️ VERCEL_DEPLOY_HOOK_URL not configured. Cannot trigger redeployment.");
+        console.warn("[sync-key] ⚠️ UMBRACO_VERCEL_DEPLOY_HOOK_URL not set. Cannot trigger redeployment.");
       }
     } else {
-      console.log("[sync-key] Vercel Project ID or Auth Token is not configured. Skipping Vercel updates.");
+      console.error("[sync-key] ❌ Missing UMBRACO_VERCEL_PROJECT_ID or UMBRACO_VERCEL_AUTH_TOKEN — Vercel update skipped.");
     }
 
     return NextResponse.json({ success: true, apiKey });

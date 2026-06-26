@@ -1,4 +1,10 @@
-// Read API key directly from environment variables
+// Force this page to run as a dynamic server-side render on every request.
+// This is CRITICAL — without it, Next.js statically pre-renders the page at
+// build time and bakes the UMBRACO_API_KEY value into the static HTML.
+// When the key rotates, the static build has a stale key and will always 401.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 
 /**
  * Full flow:
@@ -21,6 +27,9 @@
  * (set UMBRACO_BASE_URL env var to the public Umbraco URL for Vercel).
  */
 
+import fs from "fs";
+import path from "path";
+
 // Umbraco base URL — set UMBRACO_BASE_URL env var for Vercel production.
 // Defaults to localhost for local development.
 const UMBRACO_BASE_URL =
@@ -28,10 +37,30 @@ const UMBRACO_BASE_URL =
 
 const DELIVERY_API_URL = `${UMBRACO_BASE_URL}/umbraco/delivery/api/v2/content/item/home`;
 
+// Helper function to read the API Key dynamically in local development,
+// avoiding the need to restart the Next.js dev server when the key is rotated.
+function getApiKey(): string | undefined {
+  const isLocal = process.env.NODE_ENV === "development" || !process.env.VERCEL;
+  if (isLocal) {
+    try {
+      const envPath = path.join(process.cwd(), ".env.local");
+      if (fs.existsSync(envPath)) {
+        const envContent = fs.readFileSync(envPath, "utf8");
+        const match = envContent.match(/UMBRACO_API_KEY=(.*)/);
+        if (match && match[1]) {
+          return match[1].trim();
+        }
+      }
+    } catch (err: any) {
+      console.error("[getApiKey] Error reading .env.local dynamically:", err.message);
+    }
+  }
+  return process.env.UMBRACO_API_KEY;
+}
+
 export default async function Home() {
-  // ── Step 1: Read the current API key from Environment Variables ──────────
-  // This key is updated on Vercel by the Umbraco webhook and built into the deployment.
-  const apiKey = process.env.UMBRACO_API_KEY;
+  // ── Step 1: Read the current API key dynamically ─────────────────────────
+  const apiKey = getApiKey();
 
   // ── Step 2: Call Umbraco Delivery API with the Environment Variable key ──
   let contentData: Record<string, unknown> | null = null;
@@ -41,7 +70,7 @@ export default async function Home() {
   try {
     const res = await fetch(DELIVERY_API_URL, {
       headers: {
-        "Api-Key": String(apiKey ?? ""), // key from environment variables
+        "Api-Key": String(apiKey ?? ""), // key from environment variables or file
         "Accept-Language": "en-US",
       },
       cache: "no-store",                 // always fetch fresh
@@ -138,7 +167,23 @@ export default async function Home() {
               <div style={{ fontSize: "0.75rem", color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>
                 Vercel Environment Variable Key
               </div>
-            
+              <div>
+                <code
+                  style={{
+                    background: "rgba(255, 255, 255, 0.03)",
+                    border: "1px solid rgba(255, 255, 255, 0.06)",
+                    color: "#cbd5e1",
+                    padding: "0.4rem 0.75rem",
+                    borderRadius: "8px",
+                    fontFamily: "var(--font-mono), monospace",
+                    fontSize: "0.775rem",
+                    wordBreak: "break-all",
+                    display: "inline-block",
+                  }}
+                >
+                  {apiKey ?? "Not Set"}
+                </code>
+              </div>
             </div>
 
             {/* Field 2: Delivery API URL */}
