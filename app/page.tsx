@@ -70,10 +70,13 @@ export default async function Home() {
   try {
     const res = await fetch(DELIVERY_API_URL, {
       headers: {
-        "Api-Key": String(apiKey ?? ""), // key from environment variables or file
+        "Api-Key": String(apiKey ?? ""),   // key from environment variables or file
         "Accept-Language": "en-US",
+        // ngrok free tier shows an HTML browser-warning page for non-browser requests.
+        // This header bypasses that interstitial so the real Umbraco API responds.
+        "ngrok-skip-browser-warning": "1",
       },
-      cache: "no-store",                 // always fetch fresh
+      cache: "no-store",                   // always fetch fresh — key rotates!
     });
 
     httpStatus = res.status;
